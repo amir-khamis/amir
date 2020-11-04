@@ -1,0 +1,46 @@
+| rest /servicesNS/-/-/data/inputs/http `setup_group_all_servers_rest` timeout=0 
+| rename eai:acl.* As * 
+| rename eai:* As * 
+| rename index As index_name , sourcetype As sourcetype_name, source As source_name 
+| eval token_name=substr('title', 8) , useACK = case(useACK="true", "1", useACK="false", "0", true(), useACK) , useACK = if(isnull(useACK), "0", useACK) 
+| fields splunk_server app title token_name token disabled index_name indexes source_name sourcetype_name useACK 
+| join splunk_server type=left 
+    [| rest /servicesNS/-/-/properties/inputs/http/dedicatedIoThreads `setup_group_all_servers_rest` timeout=0 
+    | rename value as dedicatedIoThreads 
+    | fields splunk_server dedicatedIoThreads] 
+| join splunk_server type=left 
+    [| rest/servicesNS/-/-/properties/inputs/http/enableSSL `setup_group_all_servers_rest` timeout=0 
+    | rename value as enableSSL 
+    | fields splunk_server enableSSL] 
+| join splunk_server type=left 
+    [| rest /servicesNS/-/-/properties/inputs/http/port `setup_group_all_servers_rest` timeout=0 
+    | rename value as port 
+    | fields splunk_server port] 
+| join splunk_server type=left 
+    [| rest /servicesNS/-/-/properties/inputs/http/maxSockets `setup_group_all_servers_rest` timeout=0 
+    | rename value as maxSockets 
+    | fields splunk_server maxSockets] 
+| join splunk_server type=left 
+    [| rest /servicesNS/-/-/properties/inputs/http/maxThreads `setup_group_all_servers_rest` timeout=0 
+    | rename value as maxThreads 
+    | fields splunk_server maxThreads] 
+| join splunk_server type=left 
+    [| rest /servicesNS/-/-/properties/inputs/http/_rcvbuf `setup_group_all_servers_rest` timeout=0 
+    | rename value as rcvbuf 
+    | fields splunk_server rcvbuf] 
+| join splunk_server type=left 
+    [| rest /servicesNS/-/-/properties/inputs/http/useDeploymentServer `setup_group_all_servers_rest` timeout=0 
+    | rename value as useDeploymentServer 
+    | fields splunk_server useDeploymentServer] 
+| rename splunk_server As Splunk_Instance 
+| `get_cluster_label(Splunk_Instance)` 
+| fields cluster_label Splunk_Instance app title token_name token disabled index_name indexes source_name sourcetype_name useACK dedicatedIoThreads enableSSL port maxSockets maxThreads rcvbuf useDeploymentServer 
+| stats 
+    Values(Splunk_Instance) As Splunk_Instance 
+    Values(token) As token 
+    Last(*) As * 
+    by cluster_label app title token_name 
+| eval _time=now() 
+| table _time cluster_label,Splunk_Instance,app,title,token_name,token,disabled,index_name,indexes,source_name,sourcetype_name,useACK,dedicatedIoThreads,enableSSL,port,maxSockets,maxThreads rcvbuf useDeploymentServer 
+| outputlookup splunk_rest_data_inputs_http_sh_kv_store_lookup createinapp=true create_empty=true override_if_empty=false 
+| stats count
