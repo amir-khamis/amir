@@ -1,0 +1,24 @@
+index=_internal sourcetype=splunkd component=TcpOutputProc event_message=* log_level=* 
+| rename host As fwd 
+| fields _time fwd log_level event_message 
+| rex field=event_message "idx=(?<IDX_IP1>.*?):(?<IDX_Port1>\d+)" 
+| rex field=event_message "ip=(?<IDX_IP2>.*?):(?<IDX_Port2>\d+)" 
+| eval IDX_IP = coalesce(IDX_IP1,IDX_IP2), IDX_Port = coalesce(IDX_Port1,IDX_Port2) 
+| lookup splunk_rest_assets_kv_store_lookup host_ip As IDX_IP OUTPUT Splunk_Instance As IDX_Name idxcluster_label 
+| stats 
+    sum(eval(log_level="INFO")) as success_count
+    sum(eval(log_level="WARN")) as failure_count
+    count As num_connections
+    values(IDX_Port) AS IDX_Port 
+    Latest(_time) As _time
+    by idxcluster_label IDX_Name IDX_IP fwd 
+| fields _time fwd idxcluster_label IDX_Name IDX_IP IDX_Port success_count failure_count num_connections 
+| eval failure_count = if(isnull(failure_count), 0, failure_count) 
+| where failure_count >= 0 
+| join fwd 
+    [ search (index=_internal sourcetype=splunkd (search_group=dmc_group_indexer OR host=idx-i-*) fwdType=* group=tcpin_connections guid=* connectionType IN (cooked, cookedSSL) ) 
+    | rename hostname As fwd , os As fwdOS, connectionType As fwdConnectionType, version As fwdVersion 
+    | fields _time fwd fwdOS fwdVersion fwdType fwdConnectionType 
+    | `get_idxcluster_label(splunk_server)` 
+    | stats Latest(*) as * latest(_time) as _time by idxcluster_label fwd ] 
+| table _time fwd idxcluster_label IDX_Name IDX_IP IDX_Port success_count failure_count num_connections fwdType fwdOS fwdConnectionType fwdVersion
